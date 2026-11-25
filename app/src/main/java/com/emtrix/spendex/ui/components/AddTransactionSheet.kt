@@ -5,10 +5,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -54,7 +56,21 @@ fun AddTransactionSheet(currency: Currency, onDismiss: () -> Unit, onSave: (Tran
                 }
             }
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(note, { note = it.take(60) }, label = { Text("Note (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it.take(200) },
+                label = { Text("Note (optional)") },
+                placeholder = { Text("Add a description for this transaction") },
+                minLines = 2,
+                maxLines = 4,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                text = "${note.length}/200",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f),
+                modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.End)
+            )
             Spacer(Modifier.height(12.dp))
             OutlinedButton(onClick = {
                 val cal = Calendar.getInstance().apply { timeInMillis = date }

@@ -52,6 +52,7 @@ private fun SpendeXApp(vm: FinanceViewModel = viewModel()) {
     var splash by remember { mutableStateOf(true) }
     var showAdd by remember { mutableStateOf(false) }
     var undoItem by remember { mutableStateOf<Transaction?>(null) }
+    var transactionToDelete by remember { mutableStateOf<Transaction?>(null) }
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val snackbar = remember { SnackbarHostState() }
@@ -60,7 +61,7 @@ private fun SpendeXApp(vm: FinanceViewModel = viewModel()) {
     SpendeXTheme(darkTheme = state.darkMode) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Crossfade(targetState = splash, label = "launch") { isSplash ->
-                if (isSplash) {
+                if (isSplash || !state.loaded) {
                     SplashScreen { splash = false }
                 } else {
                     Scaffold(
@@ -82,14 +83,18 @@ private fun SpendeXApp(vm: FinanceViewModel = viewModel()) {
                             item {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
-                                        Text("SpendeX", style = MaterialTheme.typography.headlineSmall)
-                                        Text("Personal finance, made clear", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f))
+                                        Text("Good ${when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) { in 5..11 -> "morning"; in 12..17 -> "afternoon"; else -> "evening" }}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f))
+                                        Text("Your money, in focus.", style = MaterialTheme.typography.headlineSmall)
                                     }
-                                    IconButton(onClick = { vm.setCurrency(if (state.currency == Currency.BDT) Currency.USD else Currency.BDT) }) {
-                                        Text(if (state.currency == Currency.BDT) "৳" else "$", style = MaterialTheme.typography.titleMedium)
-                                    }
-                                    IconButton(onClick = vm::toggleTheme) {
-                                        Icon(if (state.darkMode) Icons.Default.LightMode else Icons.Default.DarkMode, "Toggle theme")
+                                    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            TextButton(onClick = { vm.setCurrency(if (state.currency == Currency.BDT) Currency.USD else Currency.BDT) }, contentPadding = PaddingValues(horizontal = 10.dp)) {
+                                                Text(state.currency.name, style = MaterialTheme.typography.labelLarge)
+                                            }
+                                            IconButton(onClick = vm::toggleTheme) {
+                                                Icon(if (state.darkMode) Icons.Default.LightMode else Icons.Default.DarkMode, "Toggle theme")
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -100,7 +105,7 @@ private fun SpendeXApp(vm: FinanceViewModel = viewModel()) {
                             item { CategoryBreakdownCard(vm.categoryTotals(), state.currency) }
                             item {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Transactions", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                                    Text("Recent transactions", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                                     TextButton(onClick = {
                                         runCatching {
                                             val file = java.io.File(context.cacheDir, "SpendeX-transactions.csv")
@@ -123,9 +128,13 @@ private fun SpendeXApp(vm: FinanceViewModel = viewModel()) {
                                 OutlinedTextField(
                                     value = state.query, onValueChange = vm::setQuery,
                                     modifier = Modifier.fillMaxWidth(),
-                                    placeholder = { Text("Search transactions") },
+                                    placeholder = { Text("Search by note, category or amount") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(14.dp)
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                        focusedContainerColor = MaterialTheme.colorScheme.surface
+                                    )
                                 )
                                 Spacer(Modifier.height(8.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -141,7 +150,7 @@ private fun SpendeXApp(vm: FinanceViewModel = viewModel()) {
                             val transactions = vm.visibleTransactions()
                             if (transactions.isEmpty()) {
                                 item {
-                                    Text("No transactions yet. Add your first entry to get started.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f), modifier = Modifier.padding(vertical = 24.dp))
+                                    Text(if (state.transactions.isEmpty()) "No transactions yet. Add your first entry to get started." else "No matching transactions. Try changing your search or filter.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f), modifier = Modifier.padding(vertical = 24.dp))
                                 }
                             } else {
                                 items(transactions, key = { it.id }) { transaction ->
@@ -164,7 +173,7 @@ private fun SpendeXApp(vm: FinanceViewModel = viewModel()) {
                                             )
                                         }
                                     ) {
-                                        TransactionItem(transaction, state.currency)
+                                        TransactionItem(transaction, state.currency) { transactionToDelete = transaction }
                                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .65f))
                                     }
                                 }
@@ -177,6 +186,33 @@ private fun SpendeXApp(vm: FinanceViewModel = viewModel()) {
                         }
                     }
                 }
+            }
+            transactionToDelete?.let { transaction ->
+                AlertDialog(
+                    onDismissRequest = { transactionToDelete = null },
+                    title = { Text("Delete transaction?") },
+                    text = { Text("This transaction will be removed from your history. You can undo this action afterwards.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            undoItem = vm.delete(transaction)
+                            transactionToDelete = null
+                            scope.launch {
+                                val result = snackbar.showSnackbar(
+                                    message = "Transaction deleted",
+                                    actionLabel = "Undo",
+                                    withDismissAction = true
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    undoItem?.let(vm::restore)
+                                }
+                                undoItem = null
+                            }
+                        }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { transactionToDelete = null }) { Text("Cancel") }
+                    }
+                )
             }
             if (showAdd) {
                 AddTransactionSheet(currency = state.currency, onDismiss = { showAdd = false }, onSave = { vm.add(it); haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) })

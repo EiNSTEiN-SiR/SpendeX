@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.Calendar
 
 enum class TransactionFilter { ALL, INCOME, EXPENSE }
@@ -28,6 +30,7 @@ data class FinanceState(
 class FinanceViewModel(application: Application) : AndroidViewModel(application) {
     private val storage = TransactionStorage(application)
     private val preferences = application.getSharedPreferences("spendex_settings", Application.MODE_PRIVATE)
+    private val persistenceMutex = Mutex()
 
     private val savedCurrency = runCatching {
         Currency.valueOf(preferences.getString("currency", Currency.BDT.name) ?: Currency.BDT.name)
@@ -80,7 +83,13 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun persist(items: List<Transaction>) {
-        viewModelScope.launch { storage.save(items) }
+        viewModelScope.launch {
+            persistenceMutex.withLock {
+                // Always write the latest state, preventing overlapping writes from
+                // leaving an older transaction list on disk.
+                storage.save(_state.value.transactions)
+            }
+        }
     }
 
     fun visibleTransactions(): List<Transaction> {
